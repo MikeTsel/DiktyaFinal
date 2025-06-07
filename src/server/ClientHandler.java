@@ -27,6 +27,8 @@ public class ClientHandler implements Runnable {
     private String downloadFileName;
     private String downloadSourceClientID;
     private String downloadSequenceNumber;
+    // Client's preferred language for photo descriptions ("en" or "gr")
+    private String languagePreference = "en";
 
     /**
      * Constructor for ClientHandler
@@ -125,6 +127,9 @@ public class ClientHandler implements Runnable {
                 case "repost":
                     handleRepost(parameters);
                     break;
+                case "set_language":
+                    handleSetLanguage(parameters);
+                    break;
 
                 case "get_notifications":
                     handleGetNotifications();
@@ -160,6 +165,7 @@ public class ClientHandler implements Runnable {
                 server.updateClientCatalog(clientID, clientSocket.getInetAddress(), clientSocket.getPort());
 
                 authenticated = true;
+                loadLanguagePreference();
                 out.println("Welcome back, client " + clientID);
                 logger.info("Client " + clientID + " logged in from " +
                         clientSocket.getInetAddress().getHostAddress() + ":" + clientSocket.getPort());
@@ -177,6 +183,8 @@ public class ClientHandler implements Runnable {
                     server.updateClientCatalog(clientID, clientSocket.getInetAddress(), clientSocket.getPort());
 
                     authenticated = true;
+                    languagePreference = "en";
+                    saveLanguagePreference();
                     out.println("Welcome client " + clientID);
                     logger.info("New client " + clientID + " signed up and connected from " +
                             clientSocket.getInetAddress().getHostAddress() + ":" + clientSocket.getPort());
@@ -858,15 +866,21 @@ public class ClientHandler implements Runnable {
 
     private void handleUpload(String parameters) {
         try {
-            // Parse the parameters: "filename:description"
-            String[] parts = parameters.split(":", 2);
-            if (parts.length != 2) {
-                out.println("Error: Invalid parameters format. Expected 'filename:description'");
+            // Parse parameters: filename:englishDescription:greekDescription
+            String[] parts = parameters.split(":", 3);
+            if (parts.length < 2) {
+                out.println("Error: Invalid parameters format. Expected 'filename:description_en[:description_gr]'");
                 return;
             }
 
             String fileName = parts[0].trim();
-            String description = parts[1].trim();
+            String descriptionEn = parts[1].trim();
+            String descriptionGr = parts.length == 3 ? parts[2].trim() : "";
+
+            if (descriptionEn.isEmpty() && descriptionGr.isEmpty()) {
+                out.println("Error: At least one description (EN or GR) must be provided");
+                return;
+            }
 
             // Check if the file name is valid
             if (fileName.isEmpty()) {
@@ -888,8 +902,11 @@ public class ClientHandler implements Runnable {
 
             // Paths for the photo and description files
             Path photoPath = Paths.get(FileManager.DATA_FOLDER, clientID, "photos", fileName);
-            Path descriptionPath = Paths.get(FileManager.DATA_FOLDER, clientID,
-                    "photos", fileName.substring(0, fileName.lastIndexOf('.')) + ".txt");
+            String baseName = fileName.substring(0, fileName.lastIndexOf('.'));
+            Path descriptionEnPath = Paths.get(FileManager.DATA_FOLDER, clientID,
+                    "photos", baseName + "_en.txt");
+            Path descriptionGrPath = Paths.get(FileManager.DATA_FOLDER, clientID,
+                    "photos", baseName + "_gr.txt");
 
             // Tell the client we're ready for the photo
             out.println("READY_FOR_PHOTO");
@@ -947,8 +964,13 @@ public class ClientHandler implements Runnable {
             // Save the photo file
             Files.write(photoPath, photoData);
 
-            // Save the description file
-            Files.write(descriptionPath, description.getBytes());
+            // Save the description files based on provided languages
+            if (!descriptionEn.isEmpty()) {
+                Files.write(descriptionEnPath, descriptionEn.getBytes());
+            }
+            if (!descriptionGr.isEmpty()) {
+                Files.write(descriptionGrPath, descriptionGr.getBytes());
+            }
 
             // Update the profile with the upload notification
             String timestamp = new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss")
@@ -974,6 +996,18 @@ public class ClientHandler implements Runnable {
             logger.info("About to notify followers for post: " + formattedPost);
 
             notifyFollowersAboutPost(formattedPost);
+
+            // Update followers' Others files with this post (Phase 2 feature)
+            List<String> followers = getFollowers();
+            for (String followerID : followers) {
+                Path followerOthersPath = Paths.get(FileManager.DATA_FOLDER, followerID,
+                        "Others_42" + followerID + ".txt");
+                if (!Files.exists(followerOthersPath)) {
+                    Files.createFile(followerOthersPath);
+                }
+                Files.write(followerOthersPath, (formattedPost + System.lineSeparator()).getBytes(),
+                        StandardOpenOption.APPEND);
+            }
         } catch (IOException e) {
             out.println("ERROR:" + e.getMessage());
             logger.severe("Error handling file upload from client " + clientID + ": " + e.getMessage());
@@ -995,8 +1029,21 @@ public class ClientHandler implements Runnable {
             // Get the file paths
             Path photoPath = Paths.get(FileManager.DATA_FOLDER, sourceClientID, "photos", fileName);
             String baseName = fileName.substring(0, fileName.lastIndexOf('.'));
-            Path descriptionPath = Paths.get(FileManager.DATA_FOLDER, sourceClientID, "photos",
-                    baseName + ".txt");
+            Path descriptionEnPath = Paths.get(FileManager.DATA_FOLDER, sourceClientID, "photos",
+                    baseName + "_en.txt");
+            Path descriptionGrPath = Paths.get(FileManager.DATA_FOLDER, sourceClientID, "photos",
+                    baseName + "_gr.txt");
+
+            Path descriptionPath;
+            if (languagePreference.equals("gr") && Files.exists(descriptionGrPath)) {
+                descriptionPath = descriptionGrPath;
+            } else if (Files.exists(descriptionEnPath)) {
+                descriptionPath = descriptionEnPath;
+            } else if (Files.exists(descriptionGrPath)) {
+                descriptionPath = descriptionGrPath;
+            } else {
+                descriptionPath = null;
+            }
 
             // Check if the files exist
             if (!Files.exists(photoPath)) {
@@ -1038,7 +1085,7 @@ public class ClientHandler implements Runnable {
             }
 
             // Send the description file (in one chunk since it's small)
-            if (Files.exists(descriptionPath)) {
+            if (descriptionPath != null && Files.exists(descriptionPath)) {
                 byte[] descriptionData = Files.readAllBytes(descriptionPath);
 
                 // Send the description
@@ -1114,14 +1161,20 @@ public class ClientHandler implements Runnable {
                 logger.info("Copied photo file " + fileName + " to client " + clientID + "'s directory");
             }
 
-            // Copy the description file if it exists
+            // Copy the description files if they exist
             String baseName = fileName.substring(0, fileName.lastIndexOf('.'));
-            Path sourceDescPath = Paths.get(FileManager.DATA_FOLDER, sourceClientID, "photos", baseName + ".txt");
-            Path targetDescPath = Paths.get(FileManager.DATA_FOLDER, clientID, "photos", baseName + ".txt");
+            Path sourceDescEnPath = Paths.get(FileManager.DATA_FOLDER, sourceClientID, "photos", baseName + "_en.txt");
+            Path targetDescEnPath = Paths.get(FileManager.DATA_FOLDER, clientID, "photos", baseName + "_en.txt");
+            Path sourceDescGrPath = Paths.get(FileManager.DATA_FOLDER, sourceClientID, "photos", baseName + "_gr.txt");
+            Path targetDescGrPath = Paths.get(FileManager.DATA_FOLDER, clientID, "photos", baseName + "_gr.txt");
 
-            if (Files.exists(sourceDescPath) && !Files.exists(targetDescPath)) {
-                Files.copy(sourceDescPath, targetDescPath);
-                logger.info("Copied description file for " + fileName + " to client " + clientID + "'s directory");
+            if (Files.exists(sourceDescEnPath) && !Files.exists(targetDescEnPath)) {
+                Files.copy(sourceDescEnPath, targetDescEnPath);
+                logger.info("Copied EN description file for " + fileName + " to client " + clientID + "'s directory");
+            }
+            if (Files.exists(sourceDescGrPath) && !Files.exists(targetDescGrPath)) {
+                Files.copy(sourceDescGrPath, targetDescGrPath);
+                logger.info("Copied GR description file for " + fileName + " to client " + clientID + "'s directory");
             }
 
             // Update profile to reflect the download
@@ -1358,6 +1411,43 @@ public class ClientHandler implements Runnable {
         }
 
         return followers;
+    }
+
+    /** Loads the client's language preference from file. */
+    private void loadLanguagePreference() {
+        Path prefPath = Paths.get(FileManager.DATA_FOLDER, clientID, "language.txt");
+        if (Files.exists(prefPath)) {
+            try {
+                List<String> lines = Files.readAllLines(prefPath);
+                if (!lines.isEmpty()) {
+                    languagePreference = lines.get(0).trim().toLowerCase();
+                }
+            } catch (IOException e) {
+                logger.warning("Unable to read language preference for " + clientID + ": " + e.getMessage());
+            }
+        }
+    }
+
+    /** Saves the client's language preference to file. */
+    private void saveLanguagePreference() {
+        try {
+            Path prefPath = Paths.get(FileManager.DATA_FOLDER, clientID, "language.txt");
+            Files.write(prefPath, languagePreference.getBytes());
+        } catch (IOException e) {
+            logger.warning("Unable to save language preference for " + clientID + ": " + e.getMessage());
+        }
+    }
+
+    /** Handles a request from the client to change language preference. */
+    private void handleSetLanguage(String lang) {
+        lang = lang.trim().toLowerCase();
+        if (!lang.equals("en") && !lang.equals("gr")) {
+            out.println("ERROR:Invalid language. Use 'en' or 'gr'");
+            return;
+        }
+        languagePreference = lang;
+        saveLanguagePreference();
+        out.println("SUCCESS:Language preference updated to " + lang);
     }
 
 
