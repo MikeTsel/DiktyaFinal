@@ -1020,7 +1020,6 @@ for (String followerID : followers) {
             (entry + System.lineSeparator()).getBytes(),
             StandardOpenOption.APPEND);
 }
-
                         StandardOpenOption.APPEND);
             }
         } catch (IOException e) {
