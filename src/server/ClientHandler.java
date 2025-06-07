@@ -997,27 +997,30 @@ public class ClientHandler implements Runnable {
 
             notifyFollowersAboutPost(formattedPost);
 
-            // Update followers' Others files with this post and description
-            List<String> followers = getFollowers();
-            for (String followerID : followers) {
-                Path followerOthersPath = Paths.get(FileManager.DATA_FOLDER, followerID,
-                        "Others_42" + followerID + ".txt");
-                if (!Files.exists(followerOthersPath)) {
-                    Files.createFile(followerOthersPath);
-                }
+// Update followers' Others files with this post and language-specific description (Phase 2 feature)
+List<String> followers = getFollowers();
+for (String followerID : followers) {
+    Path followerOthersPath = Paths.get(FileManager.DATA_FOLDER, followerID,
+            "Others_42" + followerID + ".txt");
+    if (!Files.exists(followerOthersPath)) {
+        Files.createFile(followerOthersPath);
+    }
 
-                // Determine follower's language preference
-                String followerLang = getLanguagePreferenceFor(followerID);
-                String descriptionForFollower = readDescriptionForLanguage(descriptionEnPath,
-                        descriptionGrPath, followerLang);
+    // Determine follower's language preference
+    String followerLang = getLanguagePreferenceFor(followerID);
+    String descriptionForFollower = readDescriptionForLanguage(descriptionEnPath,
+            descriptionGrPath, followerLang);
 
-                String entry = formattedPost;
-                if (!descriptionForFollower.isEmpty()) {
-                    entry += System.lineSeparator() + descriptionForFollower;
-                }
+    String entry = formattedPost;
+    if (!descriptionForFollower.isEmpty()) {
+        entry += System.lineSeparator() + descriptionForFollower;
+    }
 
-                Files.write(followerOthersPath,
-                        (entry + System.lineSeparator()).getBytes(),
+    Files.write(followerOthersPath,
+            (entry + System.lineSeparator()).getBytes(),
+            StandardOpenOption.APPEND);
+}
+
                         StandardOpenOption.APPEND);
             }
         } catch (IOException e) {
@@ -1462,51 +1465,50 @@ public class ClientHandler implements Runnable {
         out.println("SUCCESS:Language preference updated to " + lang);
     }
 
-    /**
-     * Reads the language preference for a specific client. Defaults to "en" if
-     * no preference is stored.
-     */
-    private String getLanguagePreferenceFor(String id) {
-        Path prefPath = Paths.get(FileManager.DATA_FOLDER, id, "language.txt");
-        if (Files.exists(prefPath)) {
-            try {
-                List<String> lines = Files.readAllLines(prefPath);
-                if (!lines.isEmpty()) {
-                    String lang = lines.get(0).trim().toLowerCase();
-                    if (lang.equals("gr")) {
-                        return "gr";
-                    }
+/**
+ * Reads the language preference for a specific client. Defaults to "en" if
+ * no preference is stored.
+ */
+private String getLanguagePreferenceFor(String id) {
+    Path prefPath = Paths.get(FileManager.DATA_FOLDER, id, "language.txt");
+    if (Files.exists(prefPath)) {
+        try {
+            List<String> lines = Files.readAllLines(prefPath);
+            if (!lines.isEmpty()) {
+                String lang = lines.get(0).trim().toLowerCase();
+                if (lang.equals("gr")) {
+                    return "gr";
                 }
-            } catch (IOException e) {
-                logger.warning("Unable to read language preference for " + id + ": " + e.getMessage());
             }
+        } catch (IOException e) {
+            logger.warning("Unable to read language preference for " + id + ": " + e.getMessage());
         }
-        return "en";
+    }
+    return "en";
+}
+
+/**
+ * Returns the appropriate description text for the follower based on
+ * language preference.
+ */
+private String readDescriptionForLanguage(Path enPath, Path grPath, String lang) {
+    Path chosen = null;
+    if ("gr".equals(lang) && Files.exists(grPath)) {
+        chosen = grPath;
+    } else if (Files.exists(enPath)) {
+        chosen = enPath;
+    } else if (Files.exists(grPath)) {
+        chosen = grPath;
     }
 
-    /**
-     * Returns the appropriate description text for the follower based on
-     * language preference.
-     */
-    private String readDescriptionForLanguage(Path enPath, Path grPath, String lang) {
-        Path chosen = null;
-        if ("gr".equals(lang) && Files.exists(grPath)) {
-            chosen = grPath;
-        } else if (Files.exists(enPath)) {
-            chosen = enPath;
-        } else if (Files.exists(grPath)) {
-            chosen = grPath;
+    if (chosen != null) {
+        try {
+            return new String(Files.readAllBytes(chosen));
+        } catch (IOException e) {
+            logger.warning("Unable to read description file " + chosen + ": " + e.getMessage());
         }
-
-        if (chosen != null) {
-            try {
-                return new String(Files.readAllBytes(chosen));
-            } catch (IOException e) {
-                logger.warning("Unable to read description file " + chosen + ": " + e.getMessage());
-            }
-        }
-        return "";
     }
-
+    return "";
+}
 
 }
