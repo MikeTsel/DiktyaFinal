@@ -292,7 +292,7 @@ public class SocialNetworkClient {
         System.out.println("5. View notifications");
         System.out.println("6. Access client profile");
         System.out.println("7. View my reposts");
-        System.out.println("8. Search for a photo ");
+        System.out.println("8. Search for a photo (with language filter)");
         System.out.println("9. Set language preference");
         System.out.println("10. Display help");
         System.out.println("11. Exit");
@@ -312,7 +312,7 @@ public class SocialNetworkClient {
         System.out.println("  upload <file:desc_en:desc_gr> - Upload a photo with descriptions");
         System.out.println("  notifications            - View and respond to notifications (including reposting)");
         System.out.println("  access_profile <clientID> - Access another client's profile");
-        System.out.println("  search <filename>        - Search for a photo");
+        System.out.println("  search <filename>:<en|gr> - Search for a photo with description language");
         System.out.println("  view_reposts             - View your reposted content");
         System.out.println("  set_language <en|gr>     - Set preferred language");
         System.out.println("  help                     - Display this help message");
@@ -736,10 +736,22 @@ public class SocialNetworkClient {
             return;
         }
 
+        System.out.print("Preferred description language (en/gr, optional): ");
+        String lang = scanner.nextLine().trim().toLowerCase();
+        if (!lang.isEmpty() && !lang.equals("en") && !lang.equals("gr")) {
+            System.out.println("Invalid language. Use 'en' or 'gr'.");
+            return;
+        }
+
         System.out.println("Searching for photo: " + fileName);
 
+        String params = fileName;
+        if (!lang.isEmpty()) {
+            params = fileName + ":" + lang;
+        }
+
         // Send search command to server
-        String response = sendCommand("search", fileName);
+        String response = sendCommand("search", params);
 
         if (response.startsWith("RESULT:")) {
             String results = response.substring("RESULT:".length());
