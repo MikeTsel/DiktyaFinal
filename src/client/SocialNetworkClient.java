@@ -21,6 +21,7 @@ public class SocialNetworkClient {
     private final int serverPort;
     private boolean running;
     private boolean loggedIn;
+    private String languagePreference = "en";
     private static final String SRC_FOLDER = "src";
     private static final String CLIENT_FOLDER = SRC_FOLDER + File.separator + "client";
     private static final String LOCAL_DATA_DIR = CLIENT_FOLDER + File.separator + "localdata";
@@ -292,8 +293,9 @@ public class SocialNetworkClient {
         System.out.println("6. Access client profile");
         System.out.println("7. View my reposts");
         System.out.println("8. Search for a photo ");
-        System.out.println("9. Display help");
-        System.out.println("10. Exit");
+        System.out.println("9. Set language preference");
+        System.out.println("10. Display help");
+        System.out.println("11. Exit");
         System.out.println("=============================");
         System.out.print("Choose an option: ");
     }
@@ -307,11 +309,12 @@ public class SocialNetworkClient {
         System.out.println("  post <message>           - Create a new post");
         System.out.println("  follow <clientID>        - Follow another client");
         System.out.println("  unfollow <clientID>      - Unfollow a client");
-        System.out.println("  upload <file:description> - Upload a photo");
+        System.out.println("  upload <file:desc_en:desc_gr> - Upload a photo with descriptions");
         System.out.println("  notifications            - View and respond to notifications (including reposting)");
         System.out.println("  access_profile <clientID> - Access another client's profile");
         System.out.println("  search <filename>        - Search for a photo");
         System.out.println("  view_reposts             - View your reposted content");
+        System.out.println("  set_language <en|gr>     - Set preferred language");
         System.out.println("  help                     - Display this help message");
         System.out.println("  exit                     - Disconnect and exit");
         System.out.println("============================");
@@ -649,11 +652,15 @@ public class SocialNetworkClient {
                     searchPhoto(scanner);
                     break;
 
-                case "9":
-                    displayHelp();
+                case "9": // Set language
+                    setLanguagePreference(scanner);
                     break;
 
                 case "10":
+                    displayHelp();
+                    break;
+
+                case "11":
                     disconnect();
                     break;
 
@@ -1048,7 +1055,7 @@ public class SocialNetworkClient {
             // Save the description if available
             if (description != null) {
                 String baseName = fileName.substring(0, fileName.lastIndexOf('.'));
-                Path descPath = Paths.get(LOCAL_DATA_DIR, clientID, "photos", baseName + ".txt");
+                Path descPath = Paths.get(LOCAL_DATA_DIR, clientID, "photos", baseName + "_" + languagePreference + ".txt");
                 Files.write(descPath, description.getBytes("UTF-8"));
             }
 
@@ -1099,8 +1106,15 @@ public class SocialNetworkClient {
                 return;
             }
 
-            System.out.print("Enter a description for the photo: ");
-            String description = scanner.nextLine();
+            System.out.print("Enter description in English (leave blank if none): ");
+            String descriptionEn = scanner.nextLine();
+            System.out.print("Enter description in Greek (leave blank if none): ");
+            String descriptionGr = scanner.nextLine();
+
+            if (descriptionEn.isEmpty() && descriptionGr.isEmpty()) {
+                System.out.println("Error: At least one description must be provided.");
+                return;
+            }
 
             // Create photos directory if it doesn't exist
             Path photosPath = Paths.get(LOCAL_DATA_DIR, clientID, "photos");
@@ -1112,19 +1126,18 @@ public class SocialNetworkClient {
             Path destPhotoPath = Paths.get(LOCAL_DATA_DIR, clientID, "photos", photoFile.getName());
             Files.copy(photoFile.toPath(), destPhotoPath, StandardCopyOption.REPLACE_EXISTING);
 
-            // Create the description file locally
-            String descFileName = "";
-            if (lastDot > 0) {
-                descFileName = fileName.substring(0, lastDot) + ".txt";
-            } else {
-                descFileName = fileName + ".txt";
+            // Create the description files locally
+            Path descEnPath = Paths.get(LOCAL_DATA_DIR, clientID, "photos", fileName.substring(0, lastDot) + "_en.txt");
+            Path descGrPath = Paths.get(LOCAL_DATA_DIR, clientID, "photos", fileName.substring(0, lastDot) + "_gr.txt");
+            if (!descriptionEn.isEmpty()) {
+                Files.write(descEnPath, descriptionEn.getBytes());
+            }
+            if (!descriptionGr.isEmpty()) {
+                Files.write(descGrPath, descriptionGr.getBytes());
             }
 
-            Path descPath = Paths.get(LOCAL_DATA_DIR, clientID, "photos", descFileName);
-            Files.write(descPath, description.getBytes());
-
             // Send the upload command to server
-            String response = sendCommand("upload", fileName + ":" + description);
+            String response = sendCommand("upload", fileName + ":" + descriptionEn + ":" + descriptionGr);
 
             // Check if server is ready to receive the file
             if (response.equals("READY_FOR_PHOTO")) {
@@ -1201,6 +1214,21 @@ public class SocialNetworkClient {
         } catch (IOException e) {
             System.err.println("Error reading reposts file: " + e.getMessage());
         }
+    }
+
+    /**
+     * Allows the user to set their preferred language for photo descriptions.
+     */
+    private void setLanguagePreference(Scanner scanner) {
+        System.out.print("Choose language (en/gr): ");
+        String lang = scanner.nextLine().trim().toLowerCase();
+        if (!lang.equals("en") && !lang.equals("gr")) {
+            System.out.println("Invalid language. Use 'en' or 'gr'.");
+            return;
+        }
+        languagePreference = lang;
+        String response = sendCommand("set_language", lang);
+        System.out.println(response);
     }
 
     private void addLocalFollower(String followerID) {
