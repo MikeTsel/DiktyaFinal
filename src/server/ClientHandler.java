@@ -215,17 +215,26 @@ public class ClientHandler implements Runnable {
      * @param fileName The name of the photo file to search for
      */
 
-    private void handleSearch(String fileName) {
+    private void handleSearch(String parameters) {
         try {
-            // Make sure the search term is valid
-            if (fileName == null || fileName.trim().isEmpty()) {
+            if (parameters == null || parameters.trim().isEmpty()) {
                 out.println("ERROR:Please provide a valid file name to search for");
                 return;
             }
 
-            fileName = fileName.trim();
+            String[] parts = parameters.split(":", 2);
+            String fileName = parts[0].trim();
+            String lang = null;
+            if (parts.length == 2 && !parts[1].trim().isEmpty()) {
+                lang = parts[1].trim().toLowerCase();
+                if (!lang.equals("en") && !lang.equals("gr")) {
+                    out.println("ERROR:Invalid language. Use 'en' or 'gr'");
+                    return;
+                }
+            }
 
-            logger.info("Client " + clientID + " is searching for photo: " + fileName);
+            logger.info("Client " + clientID + " is searching for photo: " + fileName +
+                    (lang != null ? " with language " + lang : ""));
 
             // Get the users that the client follows from the social graph
             List<String> following = new ArrayList<>();
@@ -236,14 +245,14 @@ public class ClientHandler implements Runnable {
                 List<String> graphLines = Files.readAllLines(socialGraphPath);
 
                 for (String line : graphLines) {
-                    String[] parts = line.split("\\s+");
+                    String[] lineParts = line.split("\\s+");
                     // If this line defines followers of a user
-                    if (parts.length > 0) {
-                        String lineClientID = parts[0];
+                    if (lineParts.length > 0) {
+                        String lineClientID = lineParts[0];
 
                         // Check if current client is a follower of this user
-                        for (int i = 1; i < parts.length; i++) {
-                            if (parts[i].equals(clientID)) {
+                        for (int i = 1; i < lineParts.length; i++) {
+                            if (lineParts[i].equals(clientID)) {
                                 // Client follows this user
                                 following.add(lineClientID);
                                 break;
@@ -265,13 +274,24 @@ public class ClientHandler implements Runnable {
             List<String> results = new ArrayList<>();
 
             for (String followedUser : following) {
-                // Check if this user has the requested photo
                 Path photoPath = Paths.get(FileManager.DATA_FOLDER, followedUser, "photos", fileName);
 
-                if (Files.exists(photoPath)) {
-                    results.add(followedUser);
-                    logger.info("Found matching photo at: " + photoPath);
+                if (!Files.exists(photoPath)) {
+                    continue;
                 }
+
+                if (lang != null) {
+                    String baseName = fileName.contains(".") ?
+                            fileName.substring(0, fileName.lastIndexOf('.')) : fileName;
+                    Path descPath = Paths.get(FileManager.DATA_FOLDER, followedUser,
+                            "photos", baseName + "_" + lang + ".txt");
+                    if (!Files.exists(descPath)) {
+                        continue;
+                    }
+                }
+
+                results.add(followedUser);
+                logger.info("Found matching photo at: " + photoPath);
             }
 
             if (results.isEmpty()) {
@@ -997,29 +1017,26 @@ public class ClientHandler implements Runnable {
 
             notifyFollowersAboutPost(formattedPost);
 
-// Update followers' Others files with this post and language-specific description (Phase 2 feature)
-List<String> followers = getFollowers();
-for (String followerID : followers) {
-    Path followerOthersPath = Paths.get(FileManager.DATA_FOLDER, followerID,
-            "Others_42" + followerID + ".txt");
-    if (!Files.exists(followerOthersPath)) {
-        Files.createFile(followerOthersPath);
-    }
+            // Update followers' Others files with this post and preferred language description
+            List<String> followers = getFollowers();
+            for (String followerID : followers) {
+                Path followerOthersPath = Paths.get(FileManager.DATA_FOLDER, followerID,
+                        "Others_42" + followerID + ".txt");
+                if (!Files.exists(followerOthersPath)) {
+                    Files.createFile(followerOthersPath);
+                }
 
-    // Determine follower's language preference
-    String followerLang = getLanguagePreferenceFor(followerID);
-    String descriptionForFollower = readDescriptionForLanguage(descriptionEnPath,
-            descriptionGrPath, followerLang);
+                String followerLang = getLanguagePreferenceFor(followerID);
+                String descriptionForFollower = readDescriptionForLanguage(descriptionEnPath,
+                        descriptionGrPath, followerLang);
 
-    String entry = formattedPost;
-    if (!descriptionForFollower.isEmpty()) {
-        entry += System.lineSeparator() + descriptionForFollower;
-    }
+                String entry = formattedPost;
+                if (!descriptionForFollower.isEmpty()) {
+                    entry += System.lineSeparator() + descriptionForFollower;
+                }
 
-    Files.write(followerOthersPath,
-            (entry + System.lineSeparator()).getBytes(),
-            StandardOpenOption.APPEND);
-}
+                Files.write(followerOthersPath,
+                        (entry + System.lineSeparator()).getBytes(),
                         StandardOpenOption.APPEND);
             }
         } catch (IOException e) {
