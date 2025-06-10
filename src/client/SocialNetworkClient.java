@@ -487,6 +487,8 @@ public class SocialNetworkClient {
                                 String file = messageContent.substring(idx + " requests access to ".length()).trim();
                                 photoRequestSenders.add(sender);
                                 photoRequestFiles.add(file);
+                            } else if (messageContent.contains("commented on")) {
+                                updateLocalOthersWithNotification(notifications[i]);
                             } else if (messageContent.contains("approved your comment:")) {
                                 int idx = messageContent.indexOf(" approved your comment:");
                                 String approver = messageContent.substring(0, idx);
@@ -1394,6 +1396,23 @@ public class SocialNetworkClient {
             System.out.println("Local profile updated with comment.");
         } catch (IOException e) {
             System.err.println("Error updating local profile: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Appends a notification about another user's activity to our local Others file
+     * so it is reflected in the client's localdata.
+     * @param notificationEntry The notification text to store
+     */
+    private void updateLocalOthersWithNotification(String notificationEntry) {
+        try {
+            Path othersPath = Paths.get(LOCAL_DATA_DIR, clientID, "Others_42" + clientID + ".txt");
+            if (!Files.exists(othersPath)) {
+                Files.createFile(othersPath);
+            }
+            Files.write(othersPath, (notificationEntry + System.lineSeparator()).getBytes(), StandardOpenOption.APPEND);
+        } catch (IOException e) {
+            System.err.println("Error updating local others file: " + e.getMessage());
         }
     }
 
