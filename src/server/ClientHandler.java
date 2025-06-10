@@ -1674,7 +1674,7 @@ private String readDescriptionForLanguage(Path enPath, Path grPath, String lang)
                         clientID,
                         followerID,
                         "post",
-                        clientID + " posted: " + formatted
+                        clientID + " commented on " + targetID + "'s post: " + comment
                 );
                 server.addNotification(notification);
 
