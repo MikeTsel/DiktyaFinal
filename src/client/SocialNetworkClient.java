@@ -449,38 +449,52 @@ public class SocialNetworkClient {
                     List<String> postSenders = new ArrayList<>();
                     List<String> postContents = new ArrayList<>();
 
-                    // Display notifications and track posts
+                    // Display notifications and track posts or comment events
+                    List<String> commentRequestSenders = new ArrayList<>();
+                    List<String> commentRequestTexts = new ArrayList<>();
+
                     for (int i = 0; i < notifications.length; i++) {
                         System.out.println((i+1) + ". " + notifications[i]);
 
-                        // Extract timestamp to skip it when parsing
                         int timestampEnd = notifications[i].indexOf("]") + 2;
                         if (timestampEnd > 1) {
                             String messageContent = notifications[i].substring(timestampEnd);
 
-                            // Check if it's a post notification (can be reposted)
                             if (messageContent.contains(" posted:") || messageContent.contains(" posted ")) {
                                 postIndices.add(i);
-
-                                // Extract sender
                                 int senderEnd = messageContent.indexOf(" posted");
                                 if (senderEnd > 0) {
                                     String sender = messageContent.substring(0, senderEnd);
                                     postSenders.add(sender);
 
-                                    // Extract content
                                     String content = messageContent.substring(senderEnd + " posted:".length()).trim();
                                     if (content.isEmpty() && messageContent.contains(" posted ")) {
-                                        // Alternative format for uploads
                                         content = messageContent.substring(senderEnd + " posted ".length()).trim();
                                     }
                                     postContents.add(content);
                                 }
+                            } else if (messageContent.contains("wants to post comment:")) {
+                                int idx = messageContent.indexOf(" wants to post comment:");
+                                String sender = messageContent.substring(0, idx);
+                                String com = messageContent.substring(idx + " wants to post comment:".length()).trim();
+                                commentRequestSenders.add(sender);
+                                commentRequestTexts.add(com);
+                            } else if (messageContent.contains("approved your comment:")) {
+                                int idx = messageContent.indexOf(" approved your comment:");
+                                String approver = messageContent.substring(0, idx);
+                                String com = messageContent.substring(idx + " approved your comment:".length()).trim();
+                                String resp = sendCommand("comment", approver + ":" + com);
+                                System.out.println(resp.startsWith("COMMENT_POSTED:") ? resp.substring(15) : resp);
+                                updateLocalProfileWithComment(approver, com, resp);
+                            } else if (messageContent.contains("rejected your comment:")) {
+                                int idx = messageContent.indexOf(" rejected your comment:");
+                                String rejector = messageContent.substring(0, idx);
+                                System.out.println("Your comment was rejected by " + rejector + ".");
                             }
                         }
                     }
 
-                    // Process notifications for follow requests to update local files
+                    // Process follow notifications to update local files
                     processFollowNotifications(notifications);
 
                     // Check if there are pending follow requests to respond to
@@ -492,23 +506,37 @@ public class SocialNetworkClient {
                     // Offer options based on notification types
                     System.out.println("\nWhat would you like to do?");
 
+                    int optionNum = 1;
+                    int followOption = -1;
+                    int repostOption = -1;
+                    int commentOption = -1;
+                    int commentReqOption = -1;
+
                     if (hasPendingRequests) {
-                        System.out.println("1. Respond to follow requests");
+                        followOption = optionNum++;
+                        System.out.println(followOption + ". Respond to follow requests");
                     }
 
                     if (!postIndices.isEmpty()) {
-                        System.out.println((hasPendingRequests ? "2" : "1") + ". Repost content");
+                        repostOption = optionNum++;
+                        System.out.println(repostOption + ". Repost content");
+                        commentOption = optionNum++;
+                        System.out.println(commentOption + ". Comment on a post");
                     }
 
-                    System.out.println((hasPendingRequests || !postIndices.isEmpty() ?
-                            (hasPendingRequests && !postIndices.isEmpty() ? "3" : "2") : "1") +
-                            ". Return to main menu");
+                    if (!commentRequestSenders.isEmpty()) {
+                        commentReqOption = optionNum++;
+                        System.out.println(commentReqOption + ". Respond to comment requests");
+                    }
+
+                    int returnOption = optionNum;
+                    System.out.println(returnOption + ". Return to main menu");
 
                     System.out.print("> ");
                     choice = scanner.nextLine().trim();
 
                     // Process user choice
-                    if (hasPendingRequests && choice.equals("1")) {
+                    if (followOption != -1 && choice.equals(Integer.toString(followOption))) {
                         // Handle follow requests
                         System.out.println("\nPending follow requests:");
                         int requestCount = 0;
@@ -556,8 +584,7 @@ public class SocialNetworkClient {
                             addLocalFollowing(requestorID);
                         }
                     }
-                    else if ((hasPendingRequests && choice.equals("2")) ||
-                            (!hasPendingRequests && choice.equals("1"))) {
+                    else if (repostOption != -1 && choice.equals(Integer.toString(repostOption))) {
                         // Handle repost
                         if (postIndices.isEmpty()) {
                             System.out.println("No posts found in your notifications.");
@@ -637,6 +664,78 @@ public class SocialNetworkClient {
                         } else {
                             System.out.println("Unexpected response: " + response);
                         }
+                    }
+                    else if (commentOption != -1 && choice.equals(Integer.toString(commentOption))) {
+                        if (postIndices.isEmpty()) {
+                            System.out.println("No posts found in your notifications.");
+                            break;
+                        }
+
+                        System.out.println("\nWhich post would you like to comment on?");
+                        for (int i = 0; i < postIndices.size(); i++) {
+                            int notificationIndex = postIndices.get(i);
+                            System.out.println((i+1) + ". " + notifications[notificationIndex]);
+                        }
+
+                        System.out.print("Enter number (or 0 to cancel): ");
+                        int selection;
+                        try {
+                            selection = Integer.parseInt(scanner.nextLine().trim());
+                            if (selection <= 0 || selection > postIndices.size()) {
+                                System.out.println("Comment cancelled or invalid selection.");
+                                break;
+                            }
+                        } catch (NumberFormatException e) {
+                            System.out.println("Invalid input. Comment cancelled.");
+                            break;
+                        }
+
+                        int selectedIndex = selection - 1;
+                        String targetSender = postSenders.get(selectedIndex);
+
+                        System.out.print("Enter your comment: ");
+                        String commentText = scanner.nextLine().trim();
+                        if (commentText.isEmpty()) {
+                            System.out.println("Empty comment. Cancelled.");
+                            break;
+                        }
+
+                        response = sendCommand("ask_comment", targetSender + ":" + commentText);
+                        System.out.println(response);
+                    }
+                    else if (commentReqOption != -1 && choice.equals(Integer.toString(commentReqOption))) {
+                        if (commentRequestSenders.isEmpty()) {
+                            System.out.println("No comment requests.");
+                            break;
+                        }
+
+                        System.out.println("\nPending comment requests:");
+                        for (int i = 0; i < commentRequestSenders.size(); i++) {
+                            System.out.println((i+1) + ". From " + commentRequestSenders.get(i) + ": " + commentRequestTexts.get(i));
+                        }
+
+                        System.out.print("Enter number to respond (0 to cancel): ");
+                        int sel;
+                        try {
+                            sel = Integer.parseInt(scanner.nextLine().trim());
+                            if (sel <= 0 || sel > commentRequestSenders.size()) {
+                                System.out.println("Cancelled.");
+                                break;
+                            }
+                        } catch (NumberFormatException e) {
+                            System.out.println("Invalid input. Cancelled.");
+                            break;
+                        }
+
+                        String requester = commentRequestSenders.get(sel-1);
+                        String cmt = commentRequestTexts.get(sel-1);
+
+                        System.out.print("Approve comment? (y/n): ");
+                        String ans = scanner.nextLine().trim().toLowerCase();
+                        String decision = ans.equals("y") ? "yes" : "no";
+
+                        response = sendCommand("approve_comment", requester + ":" + decision + ":" + cmt);
+                        System.out.println(response);
                     }
                     break;
 
@@ -1225,6 +1324,20 @@ public class SocialNetworkClient {
             }
         } catch (IOException e) {
             System.err.println("Error reading reposts file: " + e.getMessage());
+        }
+    }
+
+    private void updateLocalProfileWithComment(String target, String comment, String serverResp) {
+        if (serverResp == null || !serverResp.startsWith("COMMENT_POSTED:")) {
+            return;
+        }
+        String formatted = serverResp.substring("COMMENT_POSTED:".length());
+        try {
+            Path profilePath = Paths.get(LOCAL_DATA_DIR, clientID, "Profile_42" + clientID);
+            Files.write(profilePath, (formatted + System.lineSeparator()).getBytes(), StandardOpenOption.APPEND);
+            System.out.println("Local profile updated with comment.");
+        } catch (IOException e) {
+            System.err.println("Error updating local profile: " + e.getMessage());
         }
     }
 
