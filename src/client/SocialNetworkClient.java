@@ -1393,6 +1393,11 @@ public class SocialNetworkClient {
         try {
             Path profilePath = Paths.get(LOCAL_DATA_DIR, clientID, "Profile_42" + clientID);
             Files.write(profilePath, (formatted + System.lineSeparator()).getBytes(), StandardOpenOption.APPEND);
+
+            // Also record the comment in our local Others file so followers' activities
+            // are kept consistent across clients
+            updateLocalOthersWithNotification(formatted);
+
             System.out.println("Local profile updated with comment.");
         } catch (IOException e) {
             System.err.println("Error updating local profile: " + e.getMessage());
