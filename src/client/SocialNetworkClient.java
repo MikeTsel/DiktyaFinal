@@ -7,6 +7,10 @@ import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
 import java.util.Scanner;
+import java.util.Map;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Set;
 
 /**
  * Simple client implementation for the social network application.
@@ -25,6 +29,8 @@ public class SocialNetworkClient {
     private static final String SRC_FOLDER = "src";
     private static final String CLIENT_FOLDER = SRC_FOLDER + File.separator + "client";
     private static final String LOCAL_DATA_DIR = CLIENT_FOLDER + File.separator + "localdata";
+    // Track pending photo access requests we have sent
+    private final Map<String, Set<String>> pendingPhotoRequests = new HashMap<>();
 
 
     /**
@@ -274,6 +280,14 @@ public class SocialNetworkClient {
                     return firstLine;
                 }
             }
+            else if (command.equals("photo_details")) {
+                StringBuilder details = new StringBuilder();
+                String line;
+                while ((line = in.readLine()) != null && !line.equals("PHOTO_DETAILS_END")) {
+                    details.append(line).append("\n");
+                }
+                return details.toString().trim();
+            }
             else {
                 // For other commands, just read a single line
                 return in.readLine();
@@ -506,11 +520,25 @@ public class SocialNetworkClient {
                                 String owner = messageContent.substring(0, idx);
                                 String file = messageContent.substring(idx + " approved your access to ".length()).trim();
                                 System.out.println(owner + " approved your access to " + file + ". You may now download it.");
+                                Set<String> pending = pendingPhotoRequests.get(owner);
+                                if (pending != null) {
+                                    pending.remove(file);
+                                    if (pending.isEmpty()) {
+                                        pendingPhotoRequests.remove(owner);
+                                    }
+                                }
                             } else if (messageContent.contains("denied your access to")) {
                                 int idx = messageContent.indexOf(" denied your access to ");
                                 String owner = messageContent.substring(0, idx);
                                 String file = messageContent.substring(idx + " denied your access to ".length()).trim();
                                 System.out.println(owner + " denied your access to " + file + ".");
+                                Set<String> pending = pendingPhotoRequests.get(owner);
+                                if (pending != null) {
+                                    pending.remove(file);
+                                    if (pending.isEmpty()) {
+                                        pendingPhotoRequests.remove(owner);
+                                    }
+                                }
                             }
                         }
                     }
@@ -930,15 +958,12 @@ public class SocialNetworkClient {
             // Process the entries if there are any
             List<String> clientsWithPhoto = new ArrayList<>();
             if (parts.length > 1) {
-                // Replace our custom newline markers and print entries
                 String entries = parts[1].replace("##NEWLINE##", "\n");
                 System.out.println(entries);
 
-                // Extract client IDs from results
                 String[] lines = entries.split("\n");
                 for (String line : lines) {
                     if (line.contains("Client ID:")) {
-                        // Extract client ID
                         int startIdx = line.indexOf("Client ID:") + 10;
                         int endIdx = line.indexOf(" - File:");
                         if (startIdx > 0 && endIdx > startIdx) {
@@ -949,24 +974,62 @@ public class SocialNetworkClient {
                 }
             }
 
-            // If we found clients with this photo, offer to request access
             if (!clientsWithPhoto.isEmpty()) {
-                System.out.println("\nWould you like to request access to this photo? (y/n)");
-                String choice = scanner.nextLine().trim().toLowerCase();
-
-                if (choice.equals("y")) {
-                    // If multiple clients have the photo, choose one randomly
-                    String selectedClient;
-                    if (clientsWithPhoto.size() > 1) {
-                        int randomIndex = new java.util.Random().nextInt(clientsWithPhoto.size());
-                        selectedClient = clientsWithPhoto.get(randomIndex);
-                        System.out.println("Randomly selected client " + selectedClient + " to ask from.");
-                    } else {
-                        selectedClient = clientsWithPhoto.get(0);
+                System.out.print("\nSelect the number of the client to view details (1-" + clientsWithPhoto.size() + ", 0 to cancel): ");
+                int sel;
+                try {
+                    sel = Integer.parseInt(scanner.nextLine().trim());
+                    if (sel <= 0 || sel > clientsWithPhoto.size()) {
+                        System.out.println("Cancelled.");
+                        return;
                     }
+                } catch (NumberFormatException e) {
+                    System.out.println("Invalid input. Cancelled.");
+                    return;
+                }
 
-                    String resp = sendCommand("ask_photo", selectedClient + ":" + fileName);
-                    System.out.println(resp);
+                String selectedClient = clientsWithPhoto.get(sel-1);
+
+                String details = sendCommand("photo_details", selectedClient + ":" + fileName);
+                if (details.startsWith("ERROR:")) {
+                    System.out.println(details.substring(6));
+                    return;
+                }
+
+                System.out.println("\n===== Photo Details =====");
+                System.out.println(details);
+
+                System.out.print("Download this photo? (y/n): ");
+                String choice = scanner.nextLine().trim().toLowerCase();
+                if (!choice.equals("y")) {
+                    return;
+                }
+
+                String downloadRequest = fileName + ":" + selectedClient;
+                String dlResp = sendCommand("download", downloadRequest);
+
+                if (dlResp.startsWith("ERROR:")) {
+                    String msg = dlResp.substring(6);
+                    System.out.println("Error initiating download: " + msg);
+
+                    if (msg.contains("Access to")) {
+                        Set<String> pending = pendingPhotoRequests.getOrDefault(selectedClient, new HashSet<>());
+                        if (pending.contains(fileName)) {
+                            System.out.println("Access request already pending.");
+                        } else {
+                            System.out.println("Sending access request...");
+                            String reqResp = sendCommand("ask_photo", selectedClient + ":" + fileName);
+                            System.out.println(reqResp);
+                            pending.add(fileName);
+                            pendingPhotoRequests.put(selectedClient, pending);
+                        }
+                    }
+                    return;
+                } else if (dlResp.equals("HANDSHAKE_INIT")) {
+                    System.out.println("Beginning 3-way handshake with server...");
+                    performHandshake(fileName, selectedClient, scanner);
+                } else {
+                    System.out.println("Unexpected response from server: " + dlResp);
                 }
             }
         } else if (response.startsWith("ERROR:")) {
