@@ -1658,6 +1658,14 @@ private String readDescriptionForLanguage(Path enPath, Path grPath, String lang)
             Files.write(profilePath, (formatted + System.lineSeparator()).getBytes(),
                     StandardOpenOption.APPEND);
 
+            // Record the comment in the target user's profile as well
+            Path targetProfilePath = Paths.get(FileManager.DATA_FOLDER, targetID, "Profile_42" + targetID);
+            if (!Files.exists(targetProfilePath)) {
+                Files.createFile(targetProfilePath);
+            }
+            Files.write(targetProfilePath, (formatted + System.lineSeparator()).getBytes(),
+                    StandardOpenOption.APPEND);
+
             out.println("COMMENT_POSTED:" + formatted);
 
             // Gather followers of the commenter and of the original poster
@@ -1667,6 +1675,8 @@ private String readDescriptionForLanguage(Path enPath, Path grPath, String lang)
             // Combine them into a unique set
             Set<String> allFollowers = new LinkedHashSet<>(commenterFollowers);
             allFollowers.addAll(targetFollowers);
+            // Ensure the post owner is notified of the comment
+            allFollowers.add(targetID);
 
             // Notify all followers about the comment
             for (String followerID : allFollowers) {
