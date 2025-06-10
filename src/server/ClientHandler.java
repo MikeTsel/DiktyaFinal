@@ -144,6 +144,15 @@ public class ClientHandler implements Runnable {
                 case "download_ack":
                     handleDownloadAck(parameters);
                     break;
+                case "ask_comment":
+                    handleAskComment(parameters);
+                    break;
+                case "approve_comment":
+                    handleApproveComment(parameters);
+                    break;
+                case "comment":
+                    handleComment(parameters);
+                    break;
                 default:
                     out.println("Error: Unknown command");
             }
@@ -1526,5 +1535,136 @@ private String readDescriptionForLanguage(Path enPath, Path grPath, String lang)
     }
     return "";
 }
+
+    private void handleAskComment(String parameters) {
+        String[] parts = parameters.split(":", 2);
+        if (parts.length != 2) {
+            out.println("Error: Invalid parameters. Expected 'targetID:comment'");
+            return;
+        }
+
+        String targetID = parts[0].trim();
+        String comment = parts[1].trim();
+
+        // verify target exists
+        if (!fileManager.clientExists(targetID)) {
+            out.println("Error: Client " + targetID + " does not exist.");
+            return;
+        }
+
+        // verify we follow the target
+        if (!fileManager.isFollowing(clientID, targetID)) {
+            out.println("Error: You must follow " + targetID + " to comment on their posts.");
+            return;
+        }
+
+        Notification notification = new Notification(
+                clientID,
+                targetID,
+                "comment_request",
+                clientID + " wants to post comment: " + comment
+        );
+        server.addNotification(notification);
+
+        out.println("Comment request sent to " + targetID + ".");
+    }
+
+    private void handleApproveComment(String parameters) {
+        String[] parts = parameters.split(":", 3);
+        if (parts.length < 2) {
+            out.println("Error: Invalid parameters. Expected 'requestorID:response:comment'");
+            return;
+        }
+
+        String requestorID = parts[0].trim();
+        String response = parts[1].trim().toLowerCase();
+        String comment = parts.length == 3 ? parts[2].trim() : "";
+
+        if (!fileManager.clientExists(requestorID)) {
+            out.println("Error: Client " + requestorID + " does not exist.");
+            return;
+        }
+
+        boolean approved = response.equals("yes");
+
+        if (!isCommentInPreferredLanguage(comment)) {
+            approved = false;
+        }
+
+        String content;
+        if (approved) {
+            content = clientID + " approved your comment: " + comment;
+        } else {
+            content = clientID + " rejected your comment: " + comment;
+        }
+
+        Notification notification = new Notification(
+                clientID,
+                requestorID,
+                "comment_response",
+                content
+        );
+        server.addNotification(notification);
+
+        out.println("Your response has been sent to " + requestorID + ".");
+    }
+
+    private void handleComment(String parameters) {
+        String[] parts = parameters.split(":", 2);
+        if (parts.length != 2) {
+            out.println("Error: Invalid parameters. Expected 'targetID:comment'");
+            return;
+        }
+
+        String targetID = parts[0].trim();
+        String comment = parts[1].trim();
+
+        try {
+            Path profilePath = Paths.get(FileManager.DATA_FOLDER, clientID, "Profile_42" + clientID);
+            if (!Files.exists(profilePath)) {
+                Files.createFile(profilePath);
+            }
+
+            String timestamp = new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss")
+                    .format(new java.util.Date());
+
+            // Format the entry to clearly state who commented on whose post
+            String formatted = "[" + timestamp + "] " + clientID +
+                    " commented on " + targetID + "'s post: " + comment;
+
+            Files.write(profilePath, (formatted + System.lineSeparator()).getBytes(),
+                    StandardOpenOption.APPEND);
+
+            out.println("COMMENT_POSTED:" + formatted);
+
+            // Notify followers and update their Others files so they can see the comment
+            notifyFollowersAboutPost(formatted);
+
+            List<String> followers = getFollowers();
+            for (String followerID : followers) {
+                Path followerOthersPath = Paths.get(FileManager.DATA_FOLDER, followerID,
+                        "Others_42" + followerID + ".txt");
+                if (!Files.exists(followerOthersPath)) {
+                    Files.createFile(followerOthersPath);
+                }
+                Files.write(followerOthersPath,
+                        (formatted + System.lineSeparator()).getBytes(),
+                        StandardOpenOption.APPEND);
+            }
+        } catch (IOException e) {
+            out.println("Error: " + e.getMessage());
+        }
+    }
+
+    private boolean isCommentInPreferredLanguage(String comment) {
+        boolean hasGreek = comment.codePoints()
+                .anyMatch(cp -> Character.UnicodeBlock.of(cp) == Character.UnicodeBlock.GREEK);
+
+        if ("gr".equals(languagePreference)) {
+            return hasGreek;
+        }
+
+        return !hasGreek; // assume English otherwise
+    }
 
 }
