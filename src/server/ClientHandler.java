@@ -150,6 +150,12 @@ public class ClientHandler implements Runnable {
                 case "approve_comment":
                     handleApproveComment(parameters);
                     break;
+                case "ask_photo":
+                    handleAskPhoto(parameters);
+                    break;
+                case "permit_photo":
+                    handlePermitPhoto(parameters);
+                    break;
                 case "comment":
                     handleComment(parameters);
                     break;
@@ -462,6 +468,15 @@ public class ClientHandler implements Runnable {
                 out.println("ERROR:File " + fileName + " not found in client " + sourceClientID + "'s directory");
                 return;
             }
+
+            // Verify that the requesting client has permission from the source client
+            if (!server.hasPhotoAccess(sourceClientID, clientID, fileName)) {
+                out.println("ERROR:Access to " + fileName + " not permitted by " + sourceClientID);
+                return;
+            }
+
+            // Revoke the permission once used
+            server.revokePhotoAccess(sourceClientID, clientID, fileName);
 
             // Store the download information for use during the handshake
             this.downloadFileName = fileName;
@@ -1686,6 +1701,76 @@ private String readDescriptionForLanguage(Path enPath, Path grPath, String lang)
         }
 
         return !hasGreek; // assume English otherwise
+    }
+
+    // ----- Photo access request/permit -----
+    private void handleAskPhoto(String parameters) {
+        String[] parts = parameters.split(":", 2);
+        if (parts.length != 2) {
+            out.println("Error: Invalid parameters. Expected 'targetID:fileName'");
+            return;
+        }
+
+        String targetID = parts[0].trim();
+        String fileName = parts[1].trim();
+
+        if (!fileManager.clientExists(targetID)) {
+            out.println("Error: Client " + targetID + " does not exist.");
+            return;
+        }
+
+        Path photoPath = Paths.get(FileManager.DATA_FOLDER, targetID, "photos", fileName);
+        if (!Files.exists(photoPath)) {
+            out.println("Error: File " + fileName + " not found for client " + targetID);
+            return;
+        }
+
+        Notification notification = new Notification(
+                clientID,
+                targetID,
+                "photo_request",
+                clientID + " requests access to " + fileName
+        );
+        server.addNotification(notification);
+
+        out.println("Access request sent to " + targetID + ".");
+    }
+
+    private void handlePermitPhoto(String parameters) {
+        String[] parts = parameters.split(":", 3);
+        if (parts.length < 3) {
+            out.println("Error: Invalid parameters. Expected 'requestorID:fileName:response'");
+            return;
+        }
+
+        String requestorID = parts[0].trim();
+        String fileName = parts[1].trim();
+        String response = parts[2].trim().toLowerCase();
+
+        if (!fileManager.clientExists(requestorID)) {
+            out.println("Error: Client " + requestorID + " does not exist.");
+            return;
+        }
+
+        boolean approved = response.equals("yes");
+
+        String content;
+        if (approved) {
+            server.grantPhotoAccess(clientID, requestorID, fileName);
+            content = clientID + " approved your access to " + fileName;
+        } else {
+            content = clientID + " denied your access to " + fileName;
+        }
+
+        Notification notification = new Notification(
+                clientID,
+                requestorID,
+                "photo_response",
+                content
+        );
+        server.addNotification(notification);
+
+        out.println("Your response has been sent to " + requestorID + ".");
     }
 
 }
