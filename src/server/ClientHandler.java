@@ -1627,14 +1627,30 @@ private String readDescriptionForLanguage(Path enPath, Path grPath, String lang)
 
             String timestamp = new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss")
                     .format(new java.util.Date());
-            String formatted = "[" + timestamp + "] " + comment + " (posted by " + targetID + ")";
+
+            // Format the entry to clearly state who commented on whose post
+            String formatted = "[" + timestamp + "] " + clientID +
+                    " commented on " + targetID + "'s post: " + comment;
 
             Files.write(profilePath, (formatted + System.lineSeparator()).getBytes(),
                     StandardOpenOption.APPEND);
 
             out.println("COMMENT_POSTED:" + formatted);
 
+            // Notify followers and update their Others files so they can see the comment
             notifyFollowersAboutPost(formatted);
+
+            List<String> followers = getFollowers();
+            for (String followerID : followers) {
+                Path followerOthersPath = Paths.get(FileManager.DATA_FOLDER, followerID,
+                        "Others_42" + followerID + ".txt");
+                if (!Files.exists(followerOthersPath)) {
+                    Files.createFile(followerOthersPath);
+                }
+                Files.write(followerOthersPath,
+                        (formatted + System.lineSeparator()).getBytes(),
+                        StandardOpenOption.APPEND);
+            }
         } catch (IOException e) {
             out.println("Error: " + e.getMessage());
         }
