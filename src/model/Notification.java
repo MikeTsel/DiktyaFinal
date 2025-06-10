@@ -30,8 +30,8 @@ public class Notification {
         this.timestamp = LocalDateTime.now();
         this.isRead = false;
 
-        // If it's a follow request, set status to pending
-        if (type.equals("follow_request")) {
+        // If it's a follow or photo request, set status to pending
+        if (type.equals("follow_request") || type.equals("photo_request")) {
             this.status = "pending";
         } else {
             this.status = "none";

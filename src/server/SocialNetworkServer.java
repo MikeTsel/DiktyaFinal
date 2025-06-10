@@ -102,9 +102,10 @@ public class SocialNetworkServer {
             for (Notification notification : clientNotifications.get(clientID)) {
                 // Include if:
                 // 1. Notification is unread, or
-                // 2. It's a pending follow request
+                // 2. It's a pending follow or photo access request
                 if (!notification.isRead() ||
-                        (notification.getType().equals("follow_request") &&
+                        ((notification.getType().equals("follow_request") ||
+                                notification.getType().equals("photo_request")) &&
                                 notification.getStatus().equals("pending"))) {
                     activeNotifications.add(notification);
                 }
@@ -132,6 +133,25 @@ public class SocialNetworkServer {
 
         return pendingRequests;
     }
+
+    public List<Notification> getPendingPhotoRequests(String clientID) {
+        List<Notification> pendingRequests = new ArrayList<>();
+
+        synchronized (clientNotifications) {
+            if (!clientNotifications.containsKey(clientID)) {
+                return pendingRequests;
+            }
+
+            for (Notification notification : clientNotifications.get(clientID)) {
+                if (notification.getType().equals("photo_request") &&
+                        notification.getStatus().equals("pending")) {
+                    pendingRequests.add(notification);
+                }
+            }
+        }
+
+        return pendingRequests;
+    }
     public void updateFollowRequestStatus(String senderID, String receiverID, String status) {
         synchronized (clientNotifications) {
             if (!clientNotifications.containsKey(receiverID)) {
@@ -146,6 +166,26 @@ public class SocialNetworkServer {
                     notification.setStatus(status);
                     logger.info("Updated follow request status from " + senderID +
                             " to " + receiverID + ": " + status);
+                    return;
+                }
+            }
+        }
+
+    }
+
+    public void updatePhotoRequestStatus(String senderID, String receiverID, String fileName, String status) {
+        synchronized (clientNotifications) {
+            if (!clientNotifications.containsKey(receiverID)) {
+                return;
+            }
+
+            for (Notification notification : clientNotifications.get(receiverID)) {
+                if (notification.getType().equals("photo_request") &&
+                        notification.getSenderID().equals(senderID) &&
+                        notification.getContent().contains(fileName) &&
+                        notification.getStatus().equals("pending")) {
+
+                    notification.setStatus(status);
                     return;
                 }
             }

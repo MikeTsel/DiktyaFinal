@@ -156,6 +156,9 @@ public class ClientHandler implements Runnable {
                 case "permit_photo":
                     handlePermitPhoto(parameters);
                     break;
+                case "photo_details":
+                    handlePhotoDetails(parameters);
+                    break;
                 case "comment":
                     handleComment(parameters);
                     break;
@@ -1757,6 +1760,19 @@ private String readDescriptionForLanguage(Path enPath, Path grPath, String lang)
         String fileName = parts[1].trim();
         String response = parts[2].trim().toLowerCase();
 
+        List<Notification> pending = server.getPendingPhotoRequests(clientID);
+        boolean found = false;
+        for (Notification n : pending) {
+            if (n.getSenderID().equals(requestorID) && n.getContent().contains(fileName)) {
+                found = true;
+                break;
+            }
+        }
+        if (!found) {
+            out.println("Error: No pending photo request from client " + requestorID + ".");
+            return;
+        }
+
         if (!fileManager.clientExists(requestorID)) {
             out.println("Error: Client " + requestorID + " does not exist.");
             return;
@@ -1768,8 +1784,10 @@ private String readDescriptionForLanguage(Path enPath, Path grPath, String lang)
         if (approved) {
             server.grantPhotoAccess(clientID, requestorID, fileName);
             content = clientID + " approved your access to " + fileName;
+            server.updatePhotoRequestStatus(requestorID, clientID, fileName, "accepted");
         } else {
             content = clientID + " denied your access to " + fileName;
+            server.updatePhotoRequestStatus(requestorID, clientID, fileName, "rejected");
         }
 
         Notification notification = new Notification(
@@ -1781,6 +1799,66 @@ private String readDescriptionForLanguage(Path enPath, Path grPath, String lang)
         server.addNotification(notification);
 
         out.println("Your response has been sent to " + requestorID + ".");
+    }
+
+    private void handlePhotoDetails(String parameters) {
+        String[] parts = parameters.split(":", 2);
+        if (parts.length != 2) {
+            out.println("ERROR:Invalid parameters. Expected 'ownerID:fileName'");
+            return;
+        }
+
+        String ownerID = parts[0].trim();
+        String fileName = parts[1].trim();
+
+        if (!fileManager.clientExists(ownerID)) {
+            out.println("ERROR:Client " + ownerID + " does not exist.");
+            return;
+        }
+
+        Path photoPath = Paths.get(FileManager.DATA_FOLDER, ownerID, "photos", fileName);
+        if (!Files.exists(photoPath)) {
+            out.println("ERROR:File " + fileName + " not found for client " + ownerID);
+            return;
+        }
+
+        String base = fileName.contains(".") ? fileName.substring(0, fileName.lastIndexOf('.')) : fileName;
+        Path enPath = Paths.get(FileManager.DATA_FOLDER, ownerID, "photos", base + "_en.txt");
+        Path grPath = Paths.get(FileManager.DATA_FOLDER, ownerID, "photos", base + "_gr.txt");
+
+        String descEn = "";
+        String descGr = "";
+        try {
+            if (Files.exists(enPath)) descEn = new String(Files.readAllBytes(enPath));
+            if (Files.exists(grPath)) descGr = new String(Files.readAllBytes(grPath));
+        } catch (IOException e) {
+            // ignore reading errors
+        }
+
+        List<String> comments = new ArrayList<>();
+        Path profilePath = Paths.get(FileManager.DATA_FOLDER, ownerID, "Profile_42" + ownerID);
+        try {
+            if (Files.exists(profilePath)) {
+                for (String line : Files.readAllLines(profilePath)) {
+                    if (line.contains(fileName) && line.toLowerCase().contains("comment")) {
+                        comments.add(line);
+                    }
+                }
+            }
+        } catch (IOException e) {
+            // ignore
+        }
+
+        out.println("Description EN: " + (descEn.isEmpty() ? "N/A" : descEn));
+        out.println("Description GR: " + (descGr.isEmpty() ? "N/A" : descGr));
+        if (comments.isEmpty()) {
+            out.println("No comments found.");
+        } else {
+            for (String c : comments) {
+                out.println(c);
+            }
+        }
+        out.println("PHOTO_DETAILS_END");
     }
 
 }
