@@ -489,13 +489,14 @@ public class SocialNetworkClient {
                                 photoRequestFiles.add(file);
                             } else if (messageContent.contains("commented on")) {
                                 updateLocalOthersWithNotification(notifications[i]);
+                                appendToLocalProfile(notifications[i]);
                             } else if (messageContent.contains("approved your comment:")) {
                                 int idx = messageContent.indexOf(" approved your comment:");
                                 String approver = messageContent.substring(0, idx);
                                 String com = messageContent.substring(idx + " approved your comment:".length()).trim();
                                 String resp = sendCommand("comment", approver + ":" + com);
                                 System.out.println(resp.startsWith("COMMENT_POSTED:") ? resp.substring(15) : resp);
-                                updateLocalProfileWithComment(approver, com, resp);
+                                updateLocalProfileWithComment(resp);
                             } else if (messageContent.contains("rejected your comment:")) {
                                 int idx = messageContent.indexOf(" rejected your comment:");
                                 String rejector = messageContent.substring(0, idx);
@@ -1385,20 +1386,23 @@ public class SocialNetworkClient {
         }
     }
 
-    private void updateLocalProfileWithComment(String target, String comment, String serverResp) {
+    private void updateLocalProfileWithComment(String serverResp) {
         if (serverResp == null || !serverResp.startsWith("COMMENT_POSTED:")) {
             return;
         }
         String formatted = serverResp.substring("COMMENT_POSTED:".length());
+        appendToLocalProfile(formatted);
+        updateLocalOthersWithNotification(formatted);
+        System.out.println("Local profile updated with comment.");
+    }
+
+    private void appendToLocalProfile(String entry) {
         try {
             Path profilePath = Paths.get(LOCAL_DATA_DIR, clientID, "Profile_42" + clientID);
-            Files.write(profilePath, (formatted + System.lineSeparator()).getBytes(), StandardOpenOption.APPEND);
-
-            // Also record the comment in our local Others file so followers' activities
-            // are kept consistent across clients
-            updateLocalOthersWithNotification(formatted);
-
-            System.out.println("Local profile updated with comment.");
+            if (!Files.exists(profilePath)) {
+                Files.createFile(profilePath);
+            }
+            Files.write(profilePath, (entry + System.lineSeparator()).getBytes(), StandardOpenOption.APPEND);
         } catch (IOException e) {
             System.err.println("Error updating local profile: " + e.getMessage());
         }
