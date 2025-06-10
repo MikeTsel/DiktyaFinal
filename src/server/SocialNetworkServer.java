@@ -21,6 +21,8 @@ public class SocialNetworkServer {
     private static final String DATA_FOLDER = SRC_FOLDER + File.separator + "data";
     private static final String SOCIAL_GRAPH_FILENAME = "SocialGraph.txt";
     private Map<String, List<Notification>> clientNotifications;
+    // Permissions for photo access: key=ownerID:filename, value=set of requester IDs
+    private Map<String, Set<String>> photoPermissions;
     private static final Logger logger = Logger.getLogger(SocialNetworkServer.class.getName());
 
     private int port;
@@ -44,6 +46,7 @@ public class SocialNetworkServer {
         this.threadPool = Executors.newFixedThreadPool(MAX_THREADS);
         this.running = false;
         this.clientNotifications = new ConcurrentHashMap<>();
+        this.photoPermissions = new ConcurrentHashMap<>();
 
 
 
@@ -290,6 +293,29 @@ public class SocialNetworkServer {
     Map<String, ClientInfo> getClientCatalog() {
         synchronized (catalogLock) {
             return new HashMap<>(clientCatalog);
+        }
+    }
+
+    // --- Photo access permission management ---
+    void grantPhotoAccess(String ownerID, String requesterID, String fileName) {
+        String key = ownerID + ":" + fileName;
+        photoPermissions.computeIfAbsent(key, k -> ConcurrentHashMap.newKeySet()).add(requesterID);
+    }
+
+    boolean hasPhotoAccess(String ownerID, String requesterID, String fileName) {
+        String key = ownerID + ":" + fileName;
+        Set<String> allowed = photoPermissions.get(key);
+        return allowed != null && allowed.contains(requesterID);
+    }
+
+    void revokePhotoAccess(String ownerID, String requesterID, String fileName) {
+        String key = ownerID + ":" + fileName;
+        Set<String> allowed = photoPermissions.get(key);
+        if (allowed != null) {
+            allowed.remove(requesterID);
+            if (allowed.isEmpty()) {
+                photoPermissions.remove(key);
+            }
         }
     }
 

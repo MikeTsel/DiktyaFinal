@@ -452,6 +452,8 @@ public class SocialNetworkClient {
                     // Display notifications and track posts or comment events
                     List<String> commentRequestSenders = new ArrayList<>();
                     List<String> commentRequestTexts = new ArrayList<>();
+                    List<String> photoRequestSenders = new ArrayList<>();
+                    List<String> photoRequestFiles = new ArrayList<>();
 
                     for (int i = 0; i < notifications.length; i++) {
                         System.out.println((i+1) + ". " + notifications[i]);
@@ -479,6 +481,12 @@ public class SocialNetworkClient {
                                 String com = messageContent.substring(idx + " wants to post comment:".length()).trim();
                                 commentRequestSenders.add(sender);
                                 commentRequestTexts.add(com);
+                            } else if (messageContent.contains("requests access to")) {
+                                int idx = messageContent.indexOf(" requests access to ");
+                                String sender = messageContent.substring(0, idx);
+                                String file = messageContent.substring(idx + " requests access to ".length()).trim();
+                                photoRequestSenders.add(sender);
+                                photoRequestFiles.add(file);
                             } else if (messageContent.contains("approved your comment:")) {
                                 int idx = messageContent.indexOf(" approved your comment:");
                                 String approver = messageContent.substring(0, idx);
@@ -490,6 +498,16 @@ public class SocialNetworkClient {
                                 int idx = messageContent.indexOf(" rejected your comment:");
                                 String rejector = messageContent.substring(0, idx);
                                 System.out.println("Your comment was rejected by " + rejector + ".");
+                            } else if (messageContent.contains("approved your access to")) {
+                                int idx = messageContent.indexOf(" approved your access to ");
+                                String owner = messageContent.substring(0, idx);
+                                String file = messageContent.substring(idx + " approved your access to ".length()).trim();
+                                System.out.println(owner + " approved your access to " + file + ". You may now download it.");
+                            } else if (messageContent.contains("denied your access to")) {
+                                int idx = messageContent.indexOf(" denied your access to ");
+                                String owner = messageContent.substring(0, idx);
+                                String file = messageContent.substring(idx + " denied your access to ".length()).trim();
+                                System.out.println(owner + " denied your access to " + file + ".");
                             }
                         }
                     }
@@ -511,6 +529,7 @@ public class SocialNetworkClient {
                     int repostOption = -1;
                     int commentOption = -1;
                     int commentReqOption = -1;
+                    int photoReqOption = -1;
 
                     if (hasPendingRequests) {
                         followOption = optionNum++;
@@ -527,6 +546,11 @@ public class SocialNetworkClient {
                     if (!commentRequestSenders.isEmpty()) {
                         commentReqOption = optionNum++;
                         System.out.println(commentReqOption + ". Respond to comment requests");
+                    }
+
+                    if (!photoRequestSenders.isEmpty()) {
+                        photoReqOption = optionNum++;
+                        System.out.println(photoReqOption + ". Respond to photo access requests");
                     }
 
                     int returnOption = optionNum;
@@ -737,6 +761,40 @@ public class SocialNetworkClient {
                         response = sendCommand("approve_comment", requester + ":" + decision + ":" + cmt);
                         System.out.println(response);
                     }
+                    else if (photoReqOption != -1 && choice.equals(Integer.toString(photoReqOption))) {
+                        if (photoRequestSenders.isEmpty()) {
+                            System.out.println("No photo access requests.");
+                            break;
+                        }
+
+                        System.out.println("\nPending photo access requests:");
+                        for (int i = 0; i < photoRequestSenders.size(); i++) {
+                            System.out.println((i+1) + ". From " + photoRequestSenders.get(i) + " for file " + photoRequestFiles.get(i));
+                        }
+
+                        System.out.print("Enter number to respond (0 to cancel): ");
+                        int sel;
+                        try {
+                            sel = Integer.parseInt(scanner.nextLine().trim());
+                            if (sel <= 0 || sel > photoRequestSenders.size()) {
+                                System.out.println("Cancelled.");
+                                break;
+                            }
+                        } catch (NumberFormatException e) {
+                            System.out.println("Invalid input. Cancelled.");
+                            break;
+                        }
+
+                        String requester = photoRequestSenders.get(sel-1);
+                        String file = photoRequestFiles.get(sel-1);
+
+                        System.out.print("Permit access? (y/n): ");
+                        String ans = scanner.nextLine().trim().toLowerCase();
+                        String decision = ans.equals("y") ? "yes" : "no";
+
+                        response = sendCommand("permit_photo", requester + ":" + file + ":" + decision);
+                        System.out.println(response);
+                    }
                     break;
 
                 case "6": // Access profile (previously 11)
@@ -888,26 +946,24 @@ public class SocialNetworkClient {
                 }
             }
 
-            // If we found clients with this photo, offer to download
+            // If we found clients with this photo, offer to request access
             if (!clientsWithPhoto.isEmpty()) {
-                System.out.println("\nWould you like to download this photo? (y/n)");
+                System.out.println("\nWould you like to request access to this photo? (y/n)");
                 String choice = scanner.nextLine().trim().toLowerCase();
 
                 if (choice.equals("y")) {
                     // If multiple clients have the photo, choose one randomly
                     String selectedClient;
                     if (clientsWithPhoto.size() > 1) {
-                        // Random selection as required
                         int randomIndex = new java.util.Random().nextInt(clientsWithPhoto.size());
                         selectedClient = clientsWithPhoto.get(randomIndex);
-                        System.out.println("Randomly selected client " + selectedClient + " to download from.");
+                        System.out.println("Randomly selected client " + selectedClient + " to ask from.");
                     } else {
-                        // Only one client has the photo
                         selectedClient = clientsWithPhoto.get(0);
                     }
 
-                    // Start the download process
-                    initiateDownload(fileName, selectedClient, scanner);
+                    String resp = sendCommand("ask_photo", selectedClient + ":" + fileName);
+                    System.out.println(resp);
                 }
             }
         } else if (response.startsWith("ERROR:")) {
