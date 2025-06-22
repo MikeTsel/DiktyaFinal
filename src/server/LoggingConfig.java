@@ -1,16 +1,13 @@
 package server;
-
 import java.util.logging.*;
-
+// Configures logging output for the server.
 public class LoggingConfig {
     public static void configureLogging() {
         try {
             Logger rootLogger = Logger.getLogger("");
-
             for (Handler handler : rootLogger.getHandlers()) {
                 rootLogger.removeHandler(handler);
             }
-
             ConsoleHandler consoleHandler = new ConsoleHandler();
             SimpleFormatter formatter = new SimpleFormatter() {
                 @Override
@@ -22,20 +19,15 @@ public class LoggingConfig {
                 }
             };
             consoleHandler.setFormatter(formatter);
-
             consoleHandler.setLevel(Level.INFO);
-            rootLogger.setLevel(Level.INFO);      // Only show INFO level and above
-
+            rootLogger.setLevel(Level.INFO);      
             rootLogger.addHandler(consoleHandler);
-
             Logger.getLogger("server").setLevel(Level.INFO);
-
             Logger.getLogger("sun.rmi").setLevel(Level.OFF);
             Logger.getLogger("java.rmi").setLevel(Level.OFF);
             Logger.getLogger("javax.management").setLevel(Level.OFF);
             Logger.getLogger("com.sun.jmx").setLevel(Level.OFF);
             Logger.getLogger("java.io").setLevel(Level.OFF);
-
             System.out.println("Logging system initialized - showing only application logs");
         } catch (Exception e) {
             System.err.println("Failed to setup logger: " + e.getMessage());
